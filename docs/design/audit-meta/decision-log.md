@@ -5951,9 +5951,10 @@ only) and 14.104, extends 14.72.
   `(command)` and `(fact)` changes its option, its attribute and its
   handler's signature.
 
-**14.111 A typed refusal may declare ABORTED.** The owner's ruling,
-2026-11-16 (ctxloom's step 10b, question 3). Amends 14.52 and 14.82;
-follows 14.37.
+**14.111 A typed refusal may declare ABORTED.** The value is the owner's
+ruling, 2026-11-16 (ctxloom's step 10b, question 3). How the kernel treats
+it (below) is the implementing agent's reading of 14.37, confirmed by the
+owner on 2026-11-18. Amends 14.52 and 14.82; follows 14.37.
 - **The value.** `RefusalStatus` gains `REFUSAL_STATUS_ABORTED = 10`, its
   google.rpc.Code number, beside the six business-fatal statuses. A
   refusal message may declare it as its `(refusal_status)`; the generated
