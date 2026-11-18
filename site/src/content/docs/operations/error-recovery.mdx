@@ -66,7 +66,7 @@ Every status belongs to one of four classes (decision 14.37). The authoritative 
 | Class | Statuses | What happens |
 |-------|----------|--------------|
 | Business, fatal | `FAILED_PRECONDITION`, `INVALID_ARGUMENT`, `NOT_FOUND`, `ALREADY_EXISTS`, `OUT_OF_RANGE`, `PERMISSION_DENIED` | Final, never retried. A refused policy command reaches the policy's `Translate`. |
-| Business, immediate return | `ABORTED` ("re-read and re-decide") | Returned at once to an outside caller, who re-reads and decides again. For a policy step the runtime is the caller: it reloads and re-runs the step under the capped backoff, then dead-letters and alerts. Never a policy's `Translate`. |
+| Business, immediate return | `ABORTED` ("re-read and re-decide"), a handler's own or a typed refusal declaring `REFUSAL_STATUS_ABORTED` | Returned at once to an outside caller, who re-reads and decides again. For a policy step the runtime is the caller: it reloads and re-runs the step under the capped backoff, then dead-letters and alerts. Never a policy's `Translate`. |
 | Bug, fatal | `INTERNAL`, `UNKNOWN`, `DATA_LOSS` | Never retried: dead-lettered and alerted at once. Never a policy's `Translate`. |
 | Bug, retryable | `UNAVAILABLE`, `DEADLINE_EXCEEDED`, `RESOURCE_EXHAUSTED`, `UNIMPLEMENTED` and every other code | Retried, on by default, with exponential backoff and jitter up to the retry cap, then dead-lettered and alerted. Never a policy's `Translate`. |
 

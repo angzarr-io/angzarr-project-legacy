@@ -4082,6 +4082,8 @@ the event that the retry fails."
 
 > **Amended by 14.82 (ruled 2026-11-02):** the status is marked on the refusal MESSAGE (`refusal_status`, now a MessageOptions extension, 50111).
 
+> **Amended by 14.111 (ruled 2026-11-16):** `RefusalStatus` also holds `REFUSAL_STATUS_ABORTED` (10), whose class is 14.37's immediate return.
+
 > **Amended by 14.105 (ruled 2026-11-02):** a synchronous projector's failure (C-0677) is answered as `ANGZARR_REASON_SYNC_PROJECTION_FAILED` (UNAVAILABLE), its own key the cause, never a `ProjectorFailure` entry.
 
 **14.52 A refusal code's status is marked on its Reason value.** Owner
@@ -5948,6 +5950,24 @@ only) and 14.104, extends 14.72.
 - Cost: two attributes where there was one; converting a message between
   `(command)` and `(fact)` changes its option, its attribute and its
   handler's signature.
+
+**14.111 A typed refusal may declare ABORTED.** The owner's ruling,
+2026-11-16 (ctxloom's step 10b, question 3). Amends 14.52 and 14.82;
+follows 14.37.
+- **The value.** `RefusalStatus` gains `REFUSAL_STATUS_ABORTED = 10`, its
+  google.rpc.Code number, beside the six business-fatal statuses. A
+  refusal message may declare it as its `(refusal_status)`; the generated
+  refusal and the public helper read it as they read the others.
+- **The class is the status's.** 14.37 holds: the status alone decides.
+  An ABORTED refusal is "re-read and re-decide": returned at once to an
+  outside caller, its typed refusal in the details as any refusal's is;
+  a policy step refused with it is reloaded and run again under the
+  capped backoff, then dead-lettered and alerted, never handed to the
+  policy's Translate. A fact's handling still never refuses (14.72).
+- **Why.** A caller that acted on a version it read (an etag) and finds it
+  moved is told to re-read, with the typed refusal naming what moved;
+  FAILED_PRECONDITION would tell it the state forbids the request.
+- **Scenarios.** C-0617 gains the row of a typed refusal declaring ABORTED.
 
 ## Corrections
 

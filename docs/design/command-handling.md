@@ -101,7 +101,10 @@ one of four (decision 14.37):
               refusal in the details (decision 14.95, reversing
               decision 46's Q2), and the coordinator passes it on.
   Business, immediate return: ABORTED, "re-read and re-decide": a
-              handler's own choice, ABORTED under its own key. The
+              handler's own choice, ABORTED under its own key, or a
+              typed refusal declaring REFUSAL_STATUS_ABORTED (decision
+              14.111), which carries its refusal to an outside caller
+              like any typed refusal. The
               coordinator has no conflict
               of its own to answer (decision 14.92). Returned at once to an outside caller, who re-reads
               and decides again; for a policy step the runtime is the

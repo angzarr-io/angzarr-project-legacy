@@ -276,9 +276,15 @@ can never start an instance, so the generator warns.
 ## 10. Refusal status
 
 The status a typed refusal is refused with (decision 14.52, as amended by
-14.82). Each refusal is its own message (§11), a business
-rejection, fatal (decision 14.37); which of the six business statuses it
-travels as is a property of the message, marked on it:
+14.82 and 14.111). Each refusal is its own message (§11), a business
+rejection; which status it travels as is a property of the message, marked
+on it: one of the six business-fatal statuses (decision 14.37), or
+`REFUSAL_STATUS_ABORTED`, "re-read and re-decide" (the caller saw a stale
+version: an etag that has moved). The status alone decides the class: an
+ABORTED refusal is returned at once to an outside caller with its typed
+refusal, and a policy step refused with it is reloaded and run again under
+the capped backoff, then dead-lettered, never handed to Translate
+(command-handling.md §3).
 
 ```text
   message SeatTaken {

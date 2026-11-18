@@ -126,9 +126,13 @@ extend google.protobuf.MessageOptions {
 
 // region refusal_status
 // The status a typed refusal is refused with (decision 14.52, as amended by
-// 14.82): one of the six business statuses, declared on each refusal
-// message, never defaulted. Each value's number is its google.rpc.Code
-// number. Also the type of io.angzarr.handler.v1.Refusal.status. Rules:
+// 14.82 and 14.111): one of the six business-fatal statuses, or ABORTED,
+// declared on each refusal message, never defaulted. Each value's number is
+// its google.rpc.Code number, and the status alone decides the class
+// (decision 14.37): ABORTED is "re-read and re-decide", returned at once to
+// an outside caller, and a policy step refused with it is reloaded and run
+// again, never handed to Translate. Also the type of
+// io.angzarr.handler.v1.Refusal.status. Rules:
 // docs/design/component-options.md §10.
 enum RefusalStatus {
   // proto3's zero: no status. Never a refusal's declaration (generation
@@ -139,6 +143,7 @@ enum RefusalStatus {
   REFUSAL_STATUS_ALREADY_EXISTS = 6;
   REFUSAL_STATUS_PERMISSION_DENIED = 7;
   REFUSAL_STATUS_FAILED_PRECONDITION = 9;
+  REFUSAL_STATUS_ABORTED = 10;
   REFUSAL_STATUS_OUT_OF_RANGE = 11;
 }
 
