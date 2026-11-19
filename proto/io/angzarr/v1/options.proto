@@ -115,7 +115,12 @@ extend google.protobuf.MessageOptions {
   // 50100 across every extended options message (MessageOptions here and
   // below, EnumValueOptions in reasons.proto, FileOptions in the child
   // protocol): component 50100, command 50101, fact 50102, event 50103,
-  // refusal_status 50104, reason 50105, child_protocol 50106.
+  // refusal_status 50104, reason 50105, child_protocol 50106. angzarr-build
+  // holds the next five, in package io.angzarr.codegen.v1 (its
+  // crates/angzarr-codegen/proto/io/angzarr/codegen/v1/codegen.proto):
+  // field 50107 (FieldOptions), message 50108 (MessageOptions), value 50109
+  // (EnumValueOptions), enumeration 50110 (EnumOptions), choice 50111
+  // (OneofOptions).
   ComponentOptions component = 50100;
   CommandOptions command = 50101;
   // A fact's declaration (decision 14.91).
