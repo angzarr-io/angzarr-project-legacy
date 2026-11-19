@@ -251,7 +251,53 @@ One copy of the output rules: `check_outputs` and the stamping are
 angzarr-embedded's today; for the coordinator to share them they move to
 angzarr-router (beside `PolicyComponent`), a change of its own.
 
-## 10. Conformance
+## 10. Divergences of angzarr-embedded from the distributed design
+
+The rule: angzarr-embedded and the distributed system diverge only where
+they must, so an application prototyped on angzarr-embedded moves to the
+distributed system unchanged. The distributed design (§9,
+distributed-transport.md, policies.md, queries-and-subscriptions.md,
+process-managers.md) is the reference, not angzarr-embedded's existing
+behaviour. The trait and the conformance suite (§11) are written to it:
+every check holds of both. Where angzarr-embedded's `Bus` differs today:
+
+1. **A policy's outputs are not held in an outbox.** Distributed, the
+   stamped outputs are written to the outbox with the checkpoint in one
+   transaction and the policy is never run again for a stored trigger
+   (policies.md §5). angzarr-embedded writes each output as its own step,
+   the position with the last, and a crash between two runs the policy
+   again, the outputs that landed deduplicated by their ids (§5). Not
+   necessary: angzarr-ports' `Write` already carries outbox entries with
+   positions, and `Outbox` is the relay's side, so the kernel can write a
+   served policy's stamped outputs and its position as one write and relay
+   them (deliver, clear, Translate a refusal into a new entry in the write
+   that clears its command's). Open, for the owner: it changes the
+   kernel's policy step (and, to converge fully, the inline chain's).
+   Until then, a policy on angzarr-embedded must re-derive the same
+   outputs for a trigger (deterministic, as `Policy::NAME`'s docs ask),
+   where distributed it need not.
+2. **Translate and retries follow from 1**: the kernel calls Translate
+   and retries a step within the policy's step; distributed, the outbox
+   relay does, after the commit. Closed with 1.
+3. **A served policy's step settles the inline chain downstream** (its
+   targets' inline policies and the inline projectors run in the same
+   call). Necessary only while inline policies exist; they are
+   angzarr-embedded's alone (the atomic in-process chain, a deliberate
+   divergence tagged in angzarr-embedded-conformance's `tags.test.rs`). An
+   application with every policy on the bus has none.
+4. **`Kernel::resume` and `Kernel::forget_gone`** exist for inline
+   policies alone; the bus, in both, is its own resume. Necessary for the
+   same reason as 3.
+5. **The wake source**: the store's `CommitNotify` and `Watch` in process,
+   the coordinator's stream subscription distributed. Necessary: it is the
+   transport.
+6. **One event per Project call.** Distributed, Project is handed a run
+   of one stream's events (projectors.md §1); angzarr-embedded's bus hands
+   runs of one, so its instances finish out of order within the window. A
+   run of one is a run, so a projector written for either is correct on
+   both; the coordinator may batch a stream's run where its credit is 1.
+
+## 11. Conformance
 
 `angzarr_bus::contract` is a test kit any implementation runs: a
 `Harness` gives the suite a bus over durable state it can drop and
