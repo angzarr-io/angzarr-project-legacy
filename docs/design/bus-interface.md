@@ -161,10 +161,19 @@ committed the same way, with the refused command's id.
 
 ## 6. Failures
 
-- **A projector's failure is held.** Its error (or an upcast that
-  failed) is reported in `Served`'s failures, and the item is handed
-  again at the next poll; a stream with one item in flight is held there,
-  the others go on.
+- **A projector's failure is classed by its status** (command-handling.md
+  §3), as every framework retry loop's is: a retryable one (UNAVAILABLE,
+  DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED) is retried with backoff
+  and jitter up to the retry cap, then dead-lettered; any other
+  (INTERNAL, UNKNOWN, a business status) is dead-lettered at once.
+  Dead-lettered, its letter kept, the event is passed and the position
+  moves past it: the letter is the record to replay. A failure not yet
+  dead-lettered (retries off, the letter not kept, an upcast that failed)
+  holds its event, handed again at the next poll; a stream with one item
+  in flight is held there, the others go on. Every failure is reported in
+  `Served`'s failures. In process the kernel's inline-projector retry
+  loop does this (`Kernel::project_book`), so a projector fails alike
+  inline and on the bus.
 - **A policy's failure is its router's.** In process the kernel's rules
   hold unchanged (command-handling.md, policies.md §4): a policy's own
   error, a handler's bug in a step, or a retryable failure past its cap,
@@ -201,16 +210,18 @@ angzarr-embedded runs a policy one of two ways, never both:
   twins). It runs inside `Kernel::handle`'s chain, once per written
   event, and `Kernel::resume` runs what it owes after a crash.
 - **On a bus**: a policy subscription
-  (`Subscription::policy(instances, BusPolicy::new(policy))`) of a bus
-  hosted on the kernel (`Bus::hosted(Host::new(store, kernel, clock,
-  wait, every))`, angzarr-embedded's implementation of the trait). It is
+  (`Subscription::policy(instances, BusPolicy::new(policy))`) of
+  angzarr-embedded's bus, which is the trait's implementation and has no
+  API of its own beside it (`Bus::new(Host::new(store, kernel, clock,
+  wait, every))`). It is
   not in the registry, so no chain runs it and `Kernel::resume` and
   `Kernel::forget_gone` never touch it: the bus's positions are its
   resume, and the bus forgets its purged streams (§7). The hosted bus
   refuses to subscribe a policy whose name the kernel's registry runs
   inline (`Misconfigured::ComponentRegistered`), and one whose source is a
   remote domain (`Misconfigured::RemoteSource`), as registering it is
-  refused. An unhosted bus (`Bus::follow`) serves its projectors alone.
+  refused; so is a projector subscription whose scope holds a remote
+  domain.
 
 A policy step on the bus is an inline step's: the kernel runs the one
 policy on the one trigger (upcast first), routes its outputs as a chain
@@ -251,14 +262,131 @@ One copy of the output rules: `check_outputs` and the stamping are
 angzarr-embedded's today; for the coordinator to share them they move to
 angzarr-router (beside `PolicyComponent`), a change of its own.
 
-## 10. Divergences of angzarr-embedded from the distributed design
+## 10. angzarr-embedded's earlier bus, audited against the distributed design
+
+angzarr-embedded's first `Bus` (projectors only, before this interface)
+was designed in process first. Each of its points against the
+distributed design, and what became of it; the trait (§2) is the
+definition, and the bus was reworked to it:
+
+| Point | The earlier bus | Verdict | Now |
+|---|---|---|---|
+| Positions | a mark under the name and the handled set under `name+handled`, two `PositionStore` positions in one write, read back through `Processed` | compatible | kept, as `angzarr_bus::Window`: the coordinator keeps the same two positions in its `PositionStore` (its `Processed` is the same record, decision 14.68); a policy's is the mark alone, the format of the coordinator's checkpoint |
+| A policy's outputs | none: projectors only | needed change | policy subscriptions; their commit is §5, and its remaining difference from the outbox is divergence 1 (§12) |
+| Ack and credit | the handler's `Ok`, written after; instances and per stream | compatible | kept: projectors.md §4's "never mark as done until business logic responds" |
+| Ordering | per stream, never across | compatible | kept (decision 14.96, queries-and-subscriptions.md §5) |
+| At least once, dedup | re-handed until written; a projector skips by (stream, sequence) | compatible | kept; a policy's dedup is its derived ids (§5) |
+| Failure | every error held and re-handed at each poll, forever: no status class, no retry cap, no dead letter, so one bug stalled its stream | needed change | classed by status, retried to the cap, dead-lettered and passed (§6), the kernel's inline-projector loop reused |
+| Purged streams | handed once as gone, forgotten | compatible | kept; a policy forgets without a call (§7) |
+| Wake | `CommitNotify`, the `Watch` poll | unavoidable divergence | the transport's (§12, 5) |
+| Naming and identity | the projector's name keyed its positions; a name was refused twice on one bus, not against the registry | needed change | the name is the component's registered name (the coordinator's projector and policy names); a policy is refused if the registry runs it inline, and any subscription of a remote source is refused |
+| API | its own `Subscription`, `Served` and `follow`/`follow_commits`, served with a catalog and no kernel | needed change | removed: `Bus::new(Host)` implements the trait and has nothing beside it, so an application written to it is written to the trait |
+
+## 11. The Go predecessor (evented)
+
+angzarr's Go predecessor (github.com/benjaminabbitt/evented) ran sagas
+and projectors over a transport. What it was, read from its source:
+
+- **Interfaces.** Async delivery was one method,
+  `EventTransporter.Handle(ctx, *EventBook) error`
+  (transport/async/eventTransporter.go:8-10); synchronous delivery one
+  per kind, `SyncSagaTransporter.HandleSync(ctx, *EventBook)
+  (*SynchronousProcessingResponse, error)`
+  (transport/sync/saga/syncSagaTransporter.go:9-11) and
+  `SyncProjectorTransporter.HandleSync(ctx, *EventBook) (*Projection,
+  error)` (transport/sync/projector/syncProjectionTransporter.go:9-11).
+  The command handler held them in a `transport.Holder`: Go channels of
+  books for the async sinks, and the sync clients
+  (applications/command/command-handler/framework/transport/transportHolder.go:9-16).
+  The services were `Saga`/`SagaCoordinator` and
+  `Projector`/`ProjectorCoordinator`, each `Handle` and `HandleSync`
+  (proto/evented/evented.proto:81-93, 119-130).
+- **Delivery: pushed by the writer.** After its write the command
+  handler called every sync projector and saga with the pages marked
+  `synchronous` (framework/server.go:74-106, 108-144; the retries at :58, :112, :132), then sent the book
+  down every async channel to an AMQP fanout exchange
+  (transport/async/amqp/sender/amqp.go:23-40). A saga's or projector's
+  coordinator received from its queue
+  (transport/async/amqp/receiver/amqp.go:30-58,
+  applications/event/saga/amqp/amqp.go:30-46).
+- **A saga's outputs** were books its business logic answered
+  (`SynchronousProcessingResponse.books`), which the coordinator sent to
+  the other domain's `BusinessCoordinator.Record`
+  (support/coordinator/sagaCoordinator.go:41-47): facts recorded at the
+  target, the first configured target only
+  (applications/event/saga/grpc/coordinator.go:24), with no derived id.
+- **Acknowledgement and retry.** The receiver acked on success and nacked
+  to requeue on failure (applications/event/saga/amqp/amqp.go:33-44),
+  but consumed with auto-ack on (receiver/amqp.go:117-125), so the
+  broker had already dropped the message. Every gRPC call retried with
+  an unbounded exponential backoff (transport/sync/saga/grpcSagaClient.go:15-21,
+  framework/server.go:58-61); there was no dead letter.
+- **Positions.** `Processed` kept the last sequence received per root,
+  one collection per deployed coordinator
+  (repository/processed/processed.go:22-57). On a delivery whose sequence
+  was past the last + 1, the coordinator read the gap from
+  `EventQuery.GetEvents` and handed it first (`RepairSequencing`,
+  support/coordinator/coordinatorBase.go:18-48), then marked the book
+  processed (:50-58). A saga's position was marked before its outputs
+  were routed (sagaCoordinator.go:34 then :41), and a routing error was
+  logged and dropped (:43-45).
+- **In-memory and networked transports were interchangeable** by the
+  narrow interface: a channel, a no-op sender
+  (transport/async/amqp/sender/noop.go) and AMQP behind
+  `EventTransporter`; a gRPC client behind each `Sync*Transporter`.
+
+What we keep:
+
+- **One narrow interface per handler kind**, the same in process and over
+  the wire: `ProjectorService.Project` and `PolicyService.React`/`Translate`
+  are the Go `Projector`/`Saga` services' successors, and the trait's
+  associated handler types are them (§1).
+- **The store is the truth, a delivery a hint.** `RepairSequencing` read
+  the gap from the store whenever a pushed book arrived past the
+  position; the bus goes further and reads every event from the store
+  when it is handed (§4), so a lost or reordered push loses nothing.
+- **A position per (handler, stream), the next sequence**, as `Processed`
+  kept it; ours names the handler (one store holds every subscription's).
+- **A saga answering facts for its target**: angzarr's policy fact arm
+  (policies.md §2).
+
+What we do differently, and why:
+
+- **The position moves with the outputs, never before them** (§5):
+  evented marked a saga's position before routing its outputs and
+  dropped a failed route, so a crash or a refusal lost them. This answers
+  the question divergence 1 (§12) leaves open: the outputs must be
+  durable with the checkpoint, which the outbox does in one transaction
+  and angzarr-embedded's last-step write does by re-deriving; evented's
+  loss is the case against anything weaker.
+- **Ids are derived** (`policy_command_id`), so a redelivery lands
+  nothing twice; evented's facts had none, and a requeue recorded them
+  again.
+- **Acknowledge only after the answer, and bound the retries**: evented's
+  auto-ack lost failed messages and its unbounded backoff stalled a
+  stream on a bug forever; the bus writes the position after the answer
+  and dead-letters at the cap (§6).
+- **One event of a stream at a time for a policy** (§2): evented's
+  coordinators handled a root's books in sequence (the gap repair
+  assumed it), which a saga's outputs need; the bus keeps that order for
+  policies and lets only projectors of independent work items widen it.
+- **Pull, not push**: the writer does not call its subscribers
+  (evented's command handler called every sync saga and projector and
+  waited); the bus serves subscriptions from the store, woken by commits,
+  and SIMPLE's synchronous projection is the command coordinator's
+  (`HandleSync`), not the bus's.
+- **Every output goes to its policy's one output domain**, addressed by
+  the kernel or coordinator; evented sent every saga book to its first
+  configured target.
+
+## 12. Divergences of angzarr-embedded from the distributed design
 
 The rule: angzarr-embedded and the distributed system diverge only where
 they must, so an application prototyped on angzarr-embedded moves to the
 distributed system unchanged. The distributed design (§9,
 distributed-transport.md, policies.md, queries-and-subscriptions.md,
 process-managers.md) is the reference, not angzarr-embedded's existing
-behaviour. The trait and the conformance suite (§11) are written to it:
+behaviour. The trait and the conformance suite (§13) are written to it:
 every check holds of both. Where angzarr-embedded's `Bus` differs today:
 
 1. **A policy's outputs are not held in an outbox.** Distributed, the
@@ -291,13 +419,19 @@ every check holds of both. Where angzarr-embedded's `Bus` differs today:
 5. **The wake source**: the store's `CommitNotify` and `Watch` in process,
    the coordinator's stream subscription distributed. Necessary: it is the
    transport.
-6. **One event per Project call.** Distributed, Project is handed a run
+6. **A held failure is handed again at the next poll**, the host's poll
+   interval its backoff, where the coordinator's relay re-delivers on its
+   own schedule. Both retry within the cap first (§6); what is left is
+   only a failure the cap has not ruled on (retries off, a store that
+   failed to keep the letter). Unavoidable while the bus is a poll loop
+   over the store; harmless, since both re-deliver until the cap.
+7. **One event per Project call.** Distributed, Project is handed a run
    of one stream's events (projectors.md §1); angzarr-embedded's bus hands
    runs of one, so its instances finish out of order within the window. A
    run of one is a run, so a projector written for either is correct on
    both; the coordinator may batch a stream's run where its credit is 1.
 
-## 11. Conformance
+## 13. Conformance
 
 `angzarr_bus::contract` is a test kit any implementation runs: a
 `Harness` gives the suite a bus over durable state it can drop and
@@ -317,8 +451,10 @@ per check. The checks:
   credit bounds what is in flight, per subscription and per stream;
 - a policy's position moves only with its outputs (a failed commit lands
   neither);
-- a held failure is handed again, and a policy's bug is dead-lettered or
-  held;
+- a projector's retryable failure is handed again, and its bug
+  dead-lettered and passed, its stream going on;
+- a policy's bug is dead-lettered (the position past it, not run again)
+  or held (run again);
 - a purged stream is handed to a projector once as gone and forgotten by
   a policy;
 - a commit wakes the bus with no poll.
