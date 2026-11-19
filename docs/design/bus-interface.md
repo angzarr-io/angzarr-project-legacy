@@ -335,6 +335,38 @@ and projectors over a transport. What it was, read from its source:
   (transport/async/amqp/sender/noop.go) and AMQP behind
   `EventTransporter`; a gRPC client behind each `Sync*Transporter`.
 
+Point by point, which side has the better idea (evented, angzarr-embedded's
+earlier `Bus`, or the distributed design as written), and why:
+
+| Point | Better | Why |
+|---|---|---|
+| A request/response handler contract | the earlier `Bus`, with the distributed design | evented had one: `Handle(EventBook) -> Empty` and `HandleSync(EventBook) -> SynchronousProcessingResponse`/`Projection` on every `Saga` and `Projector` (proto/evented/evented.proto:88-93, 126-130), and its AMQP coordinator acked on `Handle`'s answer (applications/event/saga/amqp/amqp.go:33-44). But the answer acknowledged nothing durable: auto-ack had already dropped the message, and the position was marked before a saga's outputs were routed. The earlier `Bus` makes the per-event answer the ack (the position written after it, nothing before), which is projectors.md §4's rule; keep it |
+| Credit | the earlier `Bus` | instances × per stream bounds what is in flight per subscription and per stream; evented had none (a channel, a queue's prefetch), and the distributed design names none. Proposal 1 below |
+| The event source | the earlier `Bus` | nothing is stored twice: each event is read from the store at the position when an instance is free for it, the bus holding only slots and positions, woken by `CommitNotify` with the `Watch` token as the fallback. evented carried whole books through channels and AMQP; the distributed design carries books in a `BusEnvelope`, with a claim check for large payloads (distributed-transport.md §4), a second copy of every event and a second failure path (`PAYLOAD_UNAVAILABLE`). Proposal 2 below |
+| Gaps and redelivery | the earlier `Bus` | evented repaired a gap by reading the store when a pushed book arrived past its position (`RepairSequencing`); reading from the store always makes a gap impossible rather than repaired |
+| Positions | the earlier `Bus`, with the distributed design | the distributed design keeps a checkpoint per (handler, stream) in `Processed` (decision 14.68), as evented did per root; the window above the mark is the earlier `Bus`'s, and costs the coordinator one more position per stream |
+| A policy's commit | the distributed design | the outbox written with the checkpoint (policies.md §5) is stronger than angzarr-embedded's last-step write: it needs no re-derivation. evented's mark-before-route lost outputs. Divergence 1 (§12) |
+| Retry and dead letters | the distributed design | status classes, a capped backoff, then a dead letter (command-handling.md §3); evented retried without bound, and the earlier `Bus` held a bug forever. The bus now does the distributed design's (§6) |
+| Interchangeable transports | evented and the distributed design alike | one narrow interface per handler kind, its in-process and gRPC implementations behind it; the trait keeps that (§1) |
+
+Proposed for the owner (changes to the distributed design, not made):
+
+1. **Credit in the distributed design.** The projector and policy
+   coordinators serve each subscription at a credit of instances × per
+   stream, one event of a stream at a time by default, as this note's §2
+   says of every bus; projectors.md §4 and distributed-transport.md §3
+   would say so.
+2. **The bus carries notifications, not events.** A coordinator reads
+   each owed event from the event store (`EventQueryService`, or the
+   store directly where it runs beside it) at its subscription's
+   position, the message bus carrying only that a stream changed (a
+   stream and its new head) as its wake source, as `CommitNotify` is in
+   process. Each event is then stored once, a lost or duplicated message
+   costs a read and nothing else, and the claim check, which exists only
+   because the bus carries payloads, is no longer needed for
+   subscriptions. distributed-transport.md §4 would change (the envelope
+   and claim check kept only where a book must travel, if anywhere).
+
 What we keep:
 
 - **One narrow interface per handler kind**, the same in process and over
