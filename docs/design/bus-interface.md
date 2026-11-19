@@ -52,7 +52,7 @@ generic over a bus whose handler types are those.
 
 ```rust
 pub struct Subscription<P, Q> { /* name, scope, credit, handler */ }
-pub enum Handler<P, Q> { Projector(P), Policy(Q) }
+pub enum Handler<P, Q> { Projector { scope: Scope, projector: P }, Policy(Q) }
 pub struct Scope   { /* one or more domains */ }
 pub struct Credit  { /* instances, per stream */ }
 
@@ -92,6 +92,27 @@ pub trait Bus {
 - **Acknowledgement** is the handler's answer: the bus records the
   position only after it (projectors.md §4: "never mark as done until
   business logic responds with an affirmative").
+- **Two layers.** `Bus` is the application's interface. Under it a
+  `Transport` carries each subscription's deliveries and takes their
+  settlements back (§14); `Hub` is the one generic bus over any transport,
+  its handlers reached through a `Dispatch` (the kernel in
+  angzarr-embedded, the component clients in a coordinator):
+
+  ```rust
+  pub trait Transport {
+      type Token: Clone; type Error;
+      type Feed<'t>: Feed<Token = Self::Token, Error = Self::Error>;
+      fn open(&self, opening: Opening<'_>) -> impl Future<Output = Result<Self::Feed<'_>, Self::Error>>;
+  }
+  pub trait Feed {
+      fn next(&self) -> impl Future<Output = Result<Next<Self::Token>, Self::Error>>;  // Delivery | Idle
+      fn settle(&self, token: Self::Token, settle: Settle) -> impl Future<Output = Result<(), Self::Error>>;
+  }
+  pub struct Delivery<T> { token: T, stream: Cover, sequence: u64, attempt: u32, key: OrderingKey, body: Body }
+  pub enum Body { Event(Box<EventPage>), Reference, Gone }
+  pub enum Settle { Handled, Held, DeadLettered }
+  pub struct Hub<'h, T: Transport, S /* event and position store */, D: Dispatch>;  // impl Bus
+  ```
 - **Serving.** `serve` runs every subscription until `more`, asked with
   what was served since it was last asked each time the bus is idle
   (nothing in flight, nothing owed but what failed), says no, or until
@@ -141,18 +162,20 @@ the format of an inline policy's (§8).
 The position never moves past a trigger unless every output of it is
 durable, and an output is never delivered twice:
 
-- **In process** (angzarr-embedded): each output is a step of its own in
-  its target stream, through the target's five steps, and the policy's
-  position past the trigger is written in the same store write as the
-  last output's events (or alone, when the policy answers none). A crash
-  between two outputs leaves the position at the trigger; the re-served
-  trigger re-derives the same command ids, and the outputs that landed
-  are duplicates at their targets, deduplicated by id.
-- **Distributed** (policies.md §5): the stamped outputs are written to
-  the transient outbox in the same transaction as the checkpoint, then
-  dispatched (`Deliver`) and cleared; the receiver deduplicates by the
-  command id. A crash after the commit re-sends the stored outputs, and
-  the policy is not run again for that trigger.
+- **Through the outbox, in both** (policies.md §5): the stamped outputs
+  are written to the transactional outbox in the same write as the
+  policy's position past the trigger, then delivered (distributed,
+  `Deliver`; angzarr-embedded, each a step of its own in its target,
+  through the target's five steps) and cleared; the receiver
+  deduplicates by the command id. A crash after the write leaves the
+  entries pending: they are relayed when the policy is next served
+  (angzarr-embedded: before its first delivery, `Dispatch::opened`), and
+  the policy is not run again for that trigger. A failed write lands
+  neither the outputs nor the position.
+- **A relayed step's failure** is the kernel's or coordinator's, as for any
+  reaction: a refusal goes to Translate, a bug or a cap is dead-lettered,
+  and the entry is cleared; a failure that would be run again (a store's,
+  a retryable one with retries off) leaves it pending.
 
 Either way the ids are `ids::policy_command_id(trigger, name, index)`,
 commands and facts in one index space, so a re-run, a redelivery or a
@@ -272,7 +295,7 @@ definition, and the bus was reworked to it:
 | Point | The earlier bus | Verdict | Now |
 |---|---|---|---|
 | Positions | a mark under the name and the handled set under `name+handled`, two `PositionStore` positions in one write, read back through `Processed` | compatible | kept, as `angzarr_bus::Window`: the coordinator keeps the same two positions in its `PositionStore` (its `Processed` is the same record, decision 14.68); a policy's is the mark alone, the format of the coordinator's checkpoint |
-| A policy's outputs | none: projectors only | needed change | policy subscriptions; their commit is §5, and its remaining difference from the outbox is divergence 1 (§12) |
+| A policy's outputs | none: projectors only | needed change | policy subscriptions, committed through the outbox as the coordinator's are (§5) |
 | Ack and credit | the handler's `Ok`, written after; instances and per stream | compatible | kept: projectors.md §4's "never mark as done until business logic responds" |
 | Ordering | per stream, never across | compatible | kept (decision 14.96, queries-and-subscriptions.md §5) |
 | At least once, dedup | re-handed until written; a projector skips by (stream, sequence) | compatible | kept; a policy's dedup is its derived ids (§5) |
@@ -345,27 +368,21 @@ earlier `Bus`, or the distributed design as written), and why:
 | The event source | the earlier `Bus` | nothing is stored twice: each event is read from the store at the position when an instance is free for it, the bus holding only slots and positions, woken by `CommitNotify` with the `Watch` token as the fallback. evented carried whole books through channels and AMQP; the distributed design carries books in a `BusEnvelope`, with a claim check for large payloads (distributed-transport.md §4), a second copy of every event and a second failure path (`PAYLOAD_UNAVAILABLE`). Proposal 2 below |
 | Gaps and redelivery | the earlier `Bus` | evented repaired a gap by reading the store when a pushed book arrived past its position (`RepairSequencing`); reading from the store always makes a gap impossible rather than repaired |
 | Positions | the earlier `Bus`, with the distributed design | the distributed design keeps a checkpoint per (handler, stream) in `Processed` (decision 14.68), as evented did per root; the window above the mark is the earlier `Bus`'s, and costs the coordinator one more position per stream |
-| A policy's commit | the distributed design | the outbox written with the checkpoint (policies.md §5) is stronger than angzarr-embedded's last-step write: it needs no re-derivation. evented's mark-before-route lost outputs. Divergence 1 (§12) |
+| A policy's commit | the distributed design | the outbox written with the checkpoint (policies.md §5) is stronger than angzarr-embedded's last-step write: it needs no re-derivation. evented's mark-before-route lost outputs. angzarr-embedded now commits through the outbox too (§5) |
 | Retry and dead letters | the distributed design | status classes, a capped backoff, then a dead letter (command-handling.md §3); evented retried without bound, and the earlier `Bus` held a bug forever. The bus now does the distributed design's (§6) |
 | Interchangeable transports | evented and the distributed design alike | one narrow interface per handler kind, its in-process and gRPC implementations behind it; the trait keeps that (§1) |
 
-Proposed for the owner (changes to the distributed design, not made):
+The owner's rulings on the two proposals:
 
-1. **Credit in the distributed design.** The projector and policy
-   coordinators serve each subscription at a credit of instances × per
-   stream, one event of a stream at a time by default, as this note's §2
-   says of every bus; projectors.md §4 and distributed-transport.md §3
-   would say so.
-2. **The bus carries notifications, not events.** A coordinator reads
-   each owed event from the event store (`EventQueryService`, or the
-   store directly where it runs beside it) at its subscription's
-   position, the message bus carrying only that a stream changed (a
-   stream and its new head) as its wake source, as `CommitNotify` is in
-   process. Each event is then stored once, a lost or duplicated message
-   costs a read and nothing else, and the claim check, which exists only
-   because the bus carries payloads, is no longer needed for
-   subscriptions. distributed-transport.md §4 would change (the envelope
-   and claim check kept only where a book must travel, if anywhere).
+1. **Credit in the distributed design: approved, made.** The projector and
+   policy coordinators serve each subscription at a credit of instances ×
+   per stream, one event of a stream at a time by default
+   (projectors.md §4, distributed-transport.md §2 and §3).
+2. **Notifications, not events, on the distributed message bus: not
+   approved.** The bus envelope keeps carrying events, with claim checks
+   for large payloads (distributed-transport.md §4); a transport may still
+   carry references (§14), and every transport falls back to the store for
+   missing predecessors.
 
 What we keep:
 
@@ -387,9 +404,8 @@ What we do differently, and why:
 - **The position moves with the outputs, never before them** (§5):
   evented marked a saga's position before routing its outputs and
   dropped a failed route, so a crash or a refusal lost them. This answers
-  the question divergence 1 (§12) leaves open: the outputs must be
-  durable with the checkpoint, which the outbox does in one transaction
-  and angzarr-embedded's last-step write does by re-deriving; evented's
+  the outbox: the outputs are durable with the checkpoint, written in
+  one transaction, in angzarr-embedded as in the coordinator; evented's
   loss is the case against anything weaker.
 - **Ids are derived** (`policy_command_id`), so a redelivery lands
   nothing twice; evented's facts had none, and a requeue recorded them
@@ -421,24 +437,16 @@ process-managers.md) is the reference, not angzarr-embedded's existing
 behaviour. The trait and the conformance suite (§13) are written to it:
 every check holds of both. Where angzarr-embedded's `Bus` differs today:
 
-1. **A policy's outputs are not held in an outbox.** Distributed, the
-   stamped outputs are written to the outbox with the checkpoint in one
-   transaction and the policy is never run again for a stored trigger
-   (policies.md §5). angzarr-embedded writes each output as its own step,
-   the position with the last, and a crash between two runs the policy
-   again, the outputs that landed deduplicated by their ids (§5). Not
-   necessary: angzarr-ports' `Write` already carries outbox entries with
-   positions, and `Outbox` is the relay's side, so the kernel can write a
-   served policy's stamped outputs and its position as one write and relay
-   them (deliver, clear, Translate a refusal into a new entry in the write
-   that clears its command's). Open, for the owner: it changes the
-   kernel's policy step (and, to converge fully, the inline chain's).
-   Until then, a policy on angzarr-embedded must re-derive the same
-   outputs for a trigger (deterministic, as `Policy::NAME`'s docs ask),
-   where distributed it need not.
-2. **Translate and retries follow from 1**: the kernel calls Translate
-   and retries a step within the policy's step; distributed, the outbox
-   relay does, after the commit. Closed with 1.
+1. **A refusal's fact is not its own outbox entry.** Distributed, the
+   relay writes Translate's fact as a new outbox entry in the transaction
+   that clears its refused command's (policies.md §4); angzarr-embedded's
+   relay delivers the fact as a step at once, then clears the command's
+   entry. A crash between them re-relays the command, deduplicated at the
+   target, refused again, and its fact deduplicated at the source by the
+   refused command's id: nothing lands twice. Small and closable (a second
+   write), not closed here.
+2. **(closed)** A policy's outputs and position commit through the
+   outbox in both (§5).
 3. **A served policy's step settles the inline chain downstream** (its
    targets' inline policies and the inline projectors run in the same
    call). Necessary only while inline policies exist; they are
@@ -489,26 +497,57 @@ per check. The checks:
   or held (run again);
 - a purged stream is handed to a projector once as gone and forgotten by
   a policy;
-- a commit wakes the bus with no poll.
+- a commit wakes the bus with no poll;
+- over the suite's scripted transport: out-of-order deliveries served in
+  stream order from the store, the late originals not handled twice; a
+  policy's triggers likewise; a held delivery settled held and delivered
+  again, one attempt more.
+
+The transport's own checks are §14's.
 
 ## 14. Brokers: handled or failed, and what a delivery must carry
 
-The owner's requirement: every delivery is acknowledged, handled
-(dequeued) or failed, with no fire-and-forget path, and the interface
-maps onto real brokers (Kafka, RabbitMQ, JetStream and the like) using
-only the data it carries; a broker may carry the event or only a
-reference to it, resolved against the event store.
+Every delivery is acknowledged, handled (dequeued) or failed, with no
+fire-and-forget path, and the interface maps onto real brokers (Kafka,
+RabbitMQ, JetStream and the like) using only the data it carries; a
+broker may carry the event or only a reference to it, resolved against
+the event store.
 
-**Where the trait stands.** The handler's answer is the
-acknowledgement: a projector answers handled or a classed failure, a
-policy its outputs or a failure, and there is no call that hands an event
-without awaiting one (§2, §4). The bus records the position only after
-the answer, and every check of §13 holds it there (a crash with an event
-in its handler leaves the window without it; a failure is handed again;
-credit bounds what is unanswered). What the trait does not yet have is
-the layer under it: the bus is given a store and reads every event from
-it at the position, so a broker's delivery handle, attempt count and
-partition key are inside an implementation, not in the interface.
+**The transport layer** (the owner's decision). Under `Bus` (§2) a
+`Transport` opens one feed per subscription (its name, scope and credit:
+the consumer group, queue or durable consumer); a feed's `next` yields a
+`Delivery` within the credit, or `Idle` when nothing more is owed, and
+its `settle` takes each delivery back, once, after its handler answered:
+`Handled` (dequeue: Kafka commit, AMQP `basic.ack`, JetStream `ack`),
+`Held` (redeliver, its attempt one more: the retry topic, `basic.nack`
+with requeue, `nak`) or `DeadLettered` (dequeue after the bus kept the
+letter). `Hub` is the one generic bus over any transport; what it does
+above it is the same for every transport:
+
+- **positions** are its own, a window per (subscription, stream) in the
+  event store's `PositionStore`, written after the answer: a transport's
+  cursor (an offset, an ack floor) is only its own;
+- **dedup by the window**: a delivery the window covers (a redelivery, a
+  late original) is settled handled without its handler;
+- **order from the store**: a delivery beyond its stream's window (per
+  stream 1: any sequence past the mark) first has every unhandled
+  predecessor read from the event store and handed, in order; the late
+  originals, when they come, are covered and settled without their
+  handler. So a transport's order never decides correctness: the store is
+  the source of order, whatever the broker delivers;
+- **references resolved** by reading the event store at the delivery's
+  stream and sequence: the event store is part of the bus's context (the
+  `Hub`'s store; a coordinator's `EventQueryService`), not an
+  implementation detail;
+- **credit**: at most a subscription's instances in its handler at once,
+  as its transport honours the same credit.
+
+angzarr-embedded's bus is the `Hub` over `StoreTransport`, the event
+store as a transport: each owed event delivered as a reference at the
+subscription's stored position, nothing carried or kept twice, woken by
+the store's `CommitNotify` with its `Watch` token polled as the fallback.
+A Kafka or AMQP adapter is another `Transport` under the same `Hub`; none
+is built yet, and the requirements on them are below.
 
 **What a delivery must carry**, for any broker to ack, nack or redeliver
 it with nothing else:
@@ -543,59 +582,60 @@ order.)
 
 **What brokers cannot express, and the design around it:**
 
-1. **Kafka has no per-message nack, and its offset is per partition.** A
-   held failure, or an event in flight below others handled, keeps the
-   partition's committed offset at it: every stream hashed to that
-   partition is redelivered from there after a crash. So the per-stream
-   position stays the bus's own (the store's `Processed`, the
-   coordinator's checkpoint), the broker's offset only a cursor: a
-   redelivered event whose stream's window already covers it is answered
-   handled at once, without its handler. A failure the bus holds is
-   moved to a retry topic (or held in memory, the partition paused) so
-   one stream's failure does not hold the partition's other streams.
-2. **AMQP orders nothing across consumers.** Per-stream order (one event
-   of a stream at a time, every policy) needs single-active-consumer or a
-   consistent-hash exchange keyed by the stream; a broker without either
-   serves only subscriptions whose per-stream credit is not required
-   (a projector of independent work items), or one instance.
-3. **Brokers count attempts loosely.** The attempt is the bus's (carried
-   in the delivery, or kept beside the position), so the retry cap (§6)
-   holds on every broker.
+1. **Kafka has no per-message nack, and its offset is per partition.**
+   *Required of a Kafka transport:* a **retry topic**. A delivery settled
+   held is published to the subscription's retry topic, keyed by its
+   stream's ordering key, and its source offset committed, so the
+   partition goes on; the retry topic is consumed by the same feed, its
+   attempt counted in the record. Per-stream order is kept by routing
+   (every record of a stream, retried or not, keyed by its stream) and,
+   whatever arrives first, by the bus's order from the store: a later
+   event of a stream whose earlier one is retrying is beyond the stream's
+   window, so the bus reads and hands the earlier one from the store
+   first (or waits for it in flight). The source offset is committed up to
+   the lowest unsettled record; a dead-lettered record is committed after
+   the bus keeps its letter (a dead-letter topic is optional, the store's
+   letter the record). Credit is `max.poll.records` with pause and resume
+   per partition.
+2. **AMQP orders nothing across consumers.** No subscription is refused
+   for it: the bus's order from the store makes the broker's order
+   irrelevant to correctness (above). Single-active-consumer or a
+   consistent-hash exchange keyed by the ordering key is still advised,
+   as it saves the predecessor reads and the late originals' redundant
+   deliveries. `basic.qos` prefetch is the credit; `basic.nack` with
+   requeue is held; a dead-letter exchange is optional, the store's
+   letter the record.
+3. **Brokers count attempts loosely.** The attempt is carried in the
+   delivery (a Kafka retry record's header, AMQP's `x-death` count,
+   JetStream's delivery count), so the retry cap (§6) holds on every
+   broker.
+4. **A broker that carries the event** (the distributed `BusEnvelope`,
+   its claim checks resolved before the bus sees the book) delivers
+   `Body::Event`; one that carries only (stream, sequence) delivers
+   `Body::Reference`, and the bus reads the event at it. Both are the
+   same interface. (The proposal to carry notifications only on the
+   distributed message bus was not approved: its envelopes still carry
+   events, and any transport still falls back to the store for missing
+   predecessors.)
 
-**A broker as the bus's wake source, the store as its source.** Every
-mapping above works with a reference body: the broker carries (stream,
-sequence) and the bus reads the event at it from the event store, so
-each event is stored once (proposal 2, §11). A broker that carries the
-event works too, the read then skipped. Either way the event store is
-part of the bus's context, not an implementation detail: angzarr-embedded's
-`Host` holds it, and a coordinator's bus holds `EventQueryService`.
+**The conformance suite** checks both layers:
 
-**Decisions for the owner** (not made):
+- *the transport* (`angzarr_bus::contract::transport`,
+  `transport_contract!`, for any broker adapter): a delivery carries its
+  stream, sequence, attempt, ordering key, and an event equal to the
+  store's or a reference the store resolves; an unsettled delivery is
+  delivered again after reopening; a handled delivery whose position is
+  recorded is not; a held one is delivered again, its attempt one more;
+  credit bounds what is unsettled, of all streams and of one; a purged
+  stream is delivered gone;
+- *the bus* (`bus_contract!`, §13), over the implementation's own
+  transport, and over the suite's scripted transport, which delivers in a
+  scripted order whatever the credit: out-of-order deliveries served in
+  stream order, their predecessors read from the store, the late
+  originals settled handled without their handler; a policy's triggers
+  likewise; every delivery settled, a held one delivered again one
+  attempt more; and every earlier check.
 
-- **A transport layer under the trait.** To let a Kafka, AMQP or
-  JetStream bus be written once against angzarr core, the interface
-  needs the layer this note leaves inside each bus: a `Transport` trait
-  yielding deliveries (token, stream, sequence, attempt, ordering key,
-  body or reference) and taking `handled(token)`, `failed(token, held |
-  dead-lettered)` and a credit, with one generic `Bus` over a transport
-  and an event store. angzarr-embedded's store-backed bus would become
-  that generic bus over a transport that reads the store; its
-  positions, window and failure classes move into the generic part.
-  This is a restructuring of the trait (§2) and of angzarr-embedded's
-  bus, and the recommendation: the subscription-level trait stays the
-  application's API, the transport trait is the implementer's.
-- **Kafka's partition-level holding** (gap 1): require a retry topic of
-  a Kafka bus, or accept that a held failure delays its partition's
-  other streams. Recommendation: require it, so the conformance check
-  that a held failure's other streams go on holds on Kafka.
-- **AMQP without single-active-consumer or consistent hashing** (gap 2):
-  refuse a subscription that needs per-stream order, or document it.
-  Recommendation: refuse, as a required capability of the transport.
-
-The conformance suite already holds a bus to: no position before the
-answer (the crash check), a failure handed again (the held-failure
-check), credit honoured (the credit check), and every event read as the
-store holds it (every check reads through the harness's store). With a
-transport layer, the suite would gain transport checks: a redelivered,
-already-handled event answered without its handler; a reference resolved
-through the store; the attempt carried across a redelivery.
+angzarr core runs both against the generic bus over its in-memory store
+(a reference dispatch), and angzarr-embedded runs the bus checks against
+its own.

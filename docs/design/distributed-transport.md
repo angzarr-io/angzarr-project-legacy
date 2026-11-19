@@ -73,6 +73,11 @@ Execute answers the outputs as the coordinator addressed and stamped
 them, in trigger order and, per trigger, in the policy's order
 (ExecuteResponse, never persisted).
 
+Credit (docs/design/bus-interface.md §2). The coordinator serves each
+policy subscription at a credit of its instances: at most that many React
+calls at once, and one trigger of a stream at a time, since its checkpoint
+moves with its outbox entries, in order. A policy scales by streams.
+
 ## 3. The projector coordinator
 
 ProjectorCoordinatorService orchestrates projection processing.
@@ -87,6 +92,9 @@ ProjectorCoordinatorService orchestrates projection processing.
 - HandleAsync: asynchronous processing: accept the events for projection
   and return without waiting (fire and forget). Named for the mode, as on
   the command coordinator (HandleAsync / HandleSync).
+
+A projector subscription is served at its credit, its runs' positions
+recorded only after the affirmative answer (docs/design/projectors.md §4).
 
 ## 4. The bus envelope and the claim check
 
