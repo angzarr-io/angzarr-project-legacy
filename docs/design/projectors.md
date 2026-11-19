@@ -51,11 +51,8 @@ applied, by (stream, sequence), which every page of the request carries.
 
 Credit (docs/design/bus-interface.md §2). The coordinator serves each
 projector subscription at a credit: at most its instances' runs in
-Project at once, and at most a per-stream credit of one stream's (1
-unless the projector's events are independent work items, at most 64), so
-by default a stream is projected one run at a time, in order. With more
-than one of a stream in flight, runs finish out of order, and the position
-is a mark and the set handled above it (bus-interface.md §3).
+Project at once, and one run of a stream, so a stream is projected one run
+at a time, in order, and its position is one mark (bus-interface.md §3).
 
 ## 5. What the coordinator builds from the answer
 
