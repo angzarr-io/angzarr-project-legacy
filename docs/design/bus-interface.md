@@ -490,3 +490,112 @@ per check. The checks:
 - a purged stream is handed to a projector once as gone and forgotten by
   a policy;
 - a commit wakes the bus with no poll.
+
+## 14. Brokers: handled or failed, and what a delivery must carry
+
+The owner's requirement: every delivery is acknowledged, handled
+(dequeued) or failed, with no fire-and-forget path, and the interface
+maps onto real brokers (Kafka, RabbitMQ, JetStream and the like) using
+only the data it carries; a broker may carry the event or only a
+reference to it, resolved against the event store.
+
+**Where the trait stands.** The handler's answer is the
+acknowledgement: a projector answers handled or a classed failure, a
+policy its outputs or a failure, and there is no call that hands an event
+without awaiting one (§2, §4). The bus records the position only after
+the answer, and every check of §13 holds it there (a crash with an event
+in its handler leaves the window without it; a failure is handed again;
+credit bounds what is unanswered). What the trait does not yet have is
+the layer under it: the bus is given a store and reads every event from
+it at the position, so a broker's delivery handle, attempt count and
+partition key are inside an implementation, not in the interface.
+
+**What a delivery must carry**, for any broker to ack, nack or redeliver
+it with nothing else:
+
+| Field | Why |
+|---|---|
+| a delivery token | the broker's handle (Kafka: topic, partition, offset; AMQP: channel and delivery tag; JetStream: the message's reply subject; SQS: the receipt handle; Pub/Sub: the ack id; in process: the claim's slot) |
+| the stream: domain, root, edition | the position's key, the dead letter's place, the ordering key |
+| the sequence | the position; dedup by (stream, sequence) |
+| the attempt | the retry cap without broker support (Kafka has none; AMQP has `redelivered` only, or `x-death` counts) |
+| the ordering key | derived from the stream (domain, root, edition), never chosen by the producer: the partition (Kafka), the consistent-hash routing key or single-active-consumer queue (AMQP), the subject token (JetStream), the message group (SQS FIFO), the ordering key (Pub/Sub) |
+| the body: the event, or a reference | a reference is (stream, sequence), the claim check's case (`BusEnvelope.claim_checks`), resolved by reading the event store at it |
+
+**The mappings.**
+
+| | Kafka | RabbitMQ (AMQP 0-9-1) | NATS JetStream | in-process store-backed bus | distributed coordinator |
+|---|---|---|---|---|---|
+| subscription | consumer group, named by the subscription | a queue per subscription, bound to the domain's exchange | a durable consumer per subscription | a pool, by name | a subscription, by the component's name |
+| handled (dequeue) | commit the partition's offset up to the lowest unhandled message | `basic.ack` of the delivery tag | `ack` | the position written after the answer | the checkpoint written after the answer |
+| failed, held | no per-message nack: hold in memory, pause the partition or seek back; or publish to a retry topic | `basic.nack` with requeue | `nak` (with a delay) | held, handed at the next poll | the relay re-delivers |
+| redelivery | from the committed offset after a crash or rebalance | requeued; `redelivered` set | after `ack_wait` | from the stored window | from the checkpoint |
+| dead letter | a dead-letter topic, then commit | a dead-letter exchange (`x-dead-letter-exchange`), or ack after writing the letter | `term`, after writing the letter; `max_deliver` | the letter kept in the store, the position past it | `DeadLetterStore`, the position past it |
+| credit (instances) | `max.poll.records`, pause/resume per partition | `basic.qos` prefetch per consumer | `max_ack_pending` | instances | instances |
+| per-stream order | per partition, the stream its key: holds, but a partition holds many streams | not across consumers, unless single-active-consumer or a consistent-hash exchange on the stream key | per subject, with `max_ack_pending` per subject 1 or ordered consumers | per stream | per stream |
+| position | the offset per partition, contiguous; the window above it is in memory only | none in the broker: the checkpoint is the consumer's | the consumer's ack floor | mark and window per stream, stored | mark and window per stream, in `Processed` |
+| a reference body | the record holds (stream, sequence) | the message holds (stream, sequence) | likewise | always: the event is read at the position | the claim check |
+
+(SQS and Pub/Sub fit as JetStream does: delete or ack as handled, the
+visibility timeout or ack deadline as redelivery, a redrive policy or
+dead-letter topic, FIFO message groups or ordering keys for per-stream
+order.)
+
+**What brokers cannot express, and the design around it:**
+
+1. **Kafka has no per-message nack, and its offset is per partition.** A
+   held failure, or an event in flight below others handled, keeps the
+   partition's committed offset at it: every stream hashed to that
+   partition is redelivered from there after a crash. So the per-stream
+   position stays the bus's own (the store's `Processed`, the
+   coordinator's checkpoint), the broker's offset only a cursor: a
+   redelivered event whose stream's window already covers it is answered
+   handled at once, without its handler. A failure the bus holds is
+   moved to a retry topic (or held in memory, the partition paused) so
+   one stream's failure does not hold the partition's other streams.
+2. **AMQP orders nothing across consumers.** Per-stream order (one event
+   of a stream at a time, every policy) needs single-active-consumer or a
+   consistent-hash exchange keyed by the stream; a broker without either
+   serves only subscriptions whose per-stream credit is not required
+   (a projector of independent work items), or one instance.
+3. **Brokers count attempts loosely.** The attempt is the bus's (carried
+   in the delivery, or kept beside the position), so the retry cap (§6)
+   holds on every broker.
+
+**A broker as the bus's wake source, the store as its source.** Every
+mapping above works with a reference body: the broker carries (stream,
+sequence) and the bus reads the event at it from the event store, so
+each event is stored once (proposal 2, §11). A broker that carries the
+event works too, the read then skipped. Either way the event store is
+part of the bus's context, not an implementation detail: angzarr-embedded's
+`Host` holds it, and a coordinator's bus holds `EventQueryService`.
+
+**Decisions for the owner** (not made):
+
+- **A transport layer under the trait.** To let a Kafka, AMQP or
+  JetStream bus be written once against angzarr core, the interface
+  needs the layer this note leaves inside each bus: a `Transport` trait
+  yielding deliveries (token, stream, sequence, attempt, ordering key,
+  body or reference) and taking `handled(token)`, `failed(token, held |
+  dead-lettered)` and a credit, with one generic `Bus` over a transport
+  and an event store. angzarr-embedded's store-backed bus would become
+  that generic bus over a transport that reads the store; its
+  positions, window and failure classes move into the generic part.
+  This is a restructuring of the trait (§2) and of angzarr-embedded's
+  bus, and the recommendation: the subscription-level trait stays the
+  application's API, the transport trait is the implementer's.
+- **Kafka's partition-level holding** (gap 1): require a retry topic of
+  a Kafka bus, or accept that a held failure delays its partition's
+  other streams. Recommendation: require it, so the conformance check
+  that a held failure's other streams go on holds on Kafka.
+- **AMQP without single-active-consumer or consistent hashing** (gap 2):
+  refuse a subscription that needs per-stream order, or document it.
+  Recommendation: refuse, as a required capability of the transport.
+
+The conformance suite already holds a bus to: no position before the
+answer (the crash check), a failure handed again (the held-failure
+check), credit honoured (the credit check), and every event read as the
+store holds it (every check reads through the harness's store). With a
+transport layer, the suite would gain transport checks: a redelivered,
+already-handled event answered without its handler; a reference resolved
+through the store; the attempt carried across a redelivery.
