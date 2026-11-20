@@ -4255,6 +4255,8 @@ ruling, 2026-10-31. Amends 14.57.
 - Why: the ruling.
 - Cost: two licence texts under `proto/`.
 
+> **Amended by 14.112 (2026-11-20):** the whole repository is `Apache-2.0 OR BSD-3-Clause`; nothing stays AGPL.
+
 > **Amended by 14.80 (ruled 2026-11-02):** there is no handshake line; readiness is grpc.health SERVING on the path the host chose.
 
 **14.59 The child-process launch protocol is in the spec.** Admitted by
@@ -5990,3 +5992,13 @@ Facts the earlier passes or the design note got wrong:
   distinction.** Its command handlers are uniform. The site page
   `components/commands-vs-facts.md` claims otherwise, and must lose that
   section (backlog DOC-3).
+
+**14.112 The whole repository is Apache-2.0 OR BSD-3-Clause.** Owner ruling,
+2026-11-20. Amends 14.57 and 14.58.
+- **The rule.** The spec, docs site, protos, contracts and build images are
+  `Apache-2.0 OR BSD-3-Clause`, at the user's option, under the root
+  `LICENSE-APACHE` and `LICENSE-BSD` (the AGPL `LICENSE` is gone).
+  `proto/` keeps identical copies for the buf module. The vendored
+  third-party protos keep their own licences.
+- No outside contributors exist (owner confirmed), so no consent is needed.
+- The README, `site/package.json` and the pitch page say so.
