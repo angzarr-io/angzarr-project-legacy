@@ -4080,7 +4080,7 @@ the event that the retry fails."
 - Cost: every coordinator answers six more keys; a consumer that owns its
   retries (a race re-run cap of 0) reports the key it was handed.
 
-> **Amended by 14.82 (ruled 2026-11-02):** the status is marked on the refusal MESSAGE (`refusal_status`, now a MessageOptions extension, 50111).
+> **Amended by 14.82 (ruled 2026-11-02):** the status is marked on the refusal MESSAGE (`refusal_status`, now a MessageOptions extension, 50104).
 
 > **Amended by 14.111 (ruled 2026-11-16):** `RefusalStatus` also holds `REFUSAL_STATUS_ABORTED` (10), whose class is 14.37's immediate return.
 
@@ -5185,7 +5185,8 @@ reaches AGGREGATE_HANDLES. Amends 3.3 and 12.7.
 **14.82 One message per refusal.** The owner's ruling F3. Each
 refusal is its own message, named in the `refuses` of each command that
 refuses with it, with its status as a MESSAGE option (`refusal_status`
-moves to MessageOptions, 50111) and one wire key (COMMAND_REFUSED plus its
+moves to MessageOptions, number 50104; 50111 is angzarr-build's
+`choice`) and one wire key (COMMAND_REFUSED plus its
 type). TableRefused's 18 codes and WalletRefused's 6 become messages.
 Amends 14.50 and 14.52.
 

@@ -103,8 +103,10 @@ The message bus's envelope (BusEnvelope), and its claim check (decision
 coordinators, wrapping the core books unchanged. Nothing here is ever
 part of a persisted page: EventPage and CommandPage payloads are always a
 plain google.protobuf.Any, and the event store records the resolved
-payload. The angzarr-embedded kernel has no bus and never sees an
-envelope.
+payload. The angzarr-embedded kernel never sees an envelope: it hosts a
+bus (the same `Bus` trait as the distributed one, bus-interface.md §12),
+but its bus reads events from the store and hands them to handlers, with
+no BusEnvelope and no claim check.
 
 Claim check. A page whose payload exceeds the bus's size limit travels
 with its payload unset and a ClaimCheck naming it in its place; the

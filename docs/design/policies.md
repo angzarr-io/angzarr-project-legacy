@@ -143,8 +143,9 @@ Mechanics:
     the same transaction that clears the command's entry. A crash before
     that commit retries the step; deduplication is by the command's id
     at the target and by the same id at the source, so a retry records
-    nothing twice. The angzarr-embedded kernel makes the same calls
-    directly, in the chain.
+    nothing twice. For an inline policy the angzarr-embedded kernel makes
+    the same calls directly, in the chain; a policy served on its bus
+    goes through the outbox as above (bus-interface.md §12).
   - The fact is unrefusable, so compensation cannot loop.
   - Only a business rejection reaches Translate: a business status
     (RefusalStatus's set) carrying a typed refusal. It is never retried.

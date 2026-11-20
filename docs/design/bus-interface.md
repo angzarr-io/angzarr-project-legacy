@@ -503,7 +503,8 @@ own (Cherenkov's runner: one stream per mutant, n instances).
 rebuild, a store to append to and purge, and adapters from the suite's
 scripted sink and policy to the implementation's handler types; each
 check is a `pub async fn` over a harness, `bus_contract!` stamps a test
-per check. The checks:
+per check. The checks below are the bus's own; the positions' and the
+ephemeral subscription's are §17's. The checks:
 
 - a crash hands again exactly what the stored position does not cover,
   skipping nothing;
