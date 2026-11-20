@@ -88,6 +88,8 @@ pub trait Bus {
   stream; work items that should run side by side are streams of their
   own. (A per-stream credit above one, with a handled set above the mark,
   was removed by the owner: §12.)
+- **Positions** are kept where the subscription says (§17): the hub's
+  store by default, memory for an ephemeral projector.
 - **Acknowledgement** is the handler's answer: the bus records the
   position only after it (projectors.md §4: "never mark as done until
   business logic responds with an affirmative").
@@ -441,6 +443,9 @@ What we do differently, and why:
   configured target.
 
 ## 12. Divergences of angzarr-embedded from the distributed design
+
+(Ephemeral subscriptions, §17, are not a divergence: the same trait, the
+same semantics, and a broker mapping for each, on both.)
 
 The rule: angzarr-embedded and the distributed system diverge only where
 they must, so an application prototyped on angzarr-embedded moves to the
@@ -1572,6 +1577,98 @@ What it changes in this note:
 store copy preferred in a fill, and the epoch on settle handles (a feed
 per serve). Amendments 1 to 4 and 7 are built; 5, 8 and 9 are rules for
 the broker adapters (spec).
+
+## 17. Positions are a subscription's choice: durable, or ephemeral
+
+A subscription's **position** (the record of what its handler has handled:
+one mark per stream, every sequence below it handled; the receipt the bus
+keeps for each handled event) lives where the subscription says. The hub
+asks a tracker for three things: a stream's mark on its first delivery
+(`load`), the mark after a handler answers (`record`), and whether the
+mark can be committed in the same write as a policy's outputs
+(`atomic_with_outputs`).
+
+```rust
+pub trait Positions: MaybeSend + MaybeSync {
+    fn atomic_with_outputs(&self) -> bool;  // a policy may be served only if true
+    fn resumes(&self) -> bool;              // outlives the serve, in the store the transport reads
+    fn begin(&self) {}                      // a serve begins: a tracker that does not outlive it empties
+    fn load<'a>(&'a self, name: &'a str, stream: &'a Cover) -> BoxFuture<'a, Result<u64, StoreError>>;
+    fn record<'a>(&'a self, name: &'a str, stream: &'a Cover, mark: u64) -> BoxFuture<'a, Result<(), StoreError>>;
+}
+
+impl<P> Subscription<P, Q> {
+    pub fn positions(self, tracker: Arc<dyn Positions>) -> Self;  // its own tracker
+    pub fn ephemeral(self) -> Self;                               // MemoryPositions
+}
+```
+
+- **Chosen per subscription, at run time.** A subscription with no tracker
+  of its own uses the hub's store (`DurablePositions`, the store's
+  `PositionStore`/`Processed`: today's behaviour); `Subscription::ephemeral()`
+  gives it `MemoryPositions`. One `Bus` serves both side by side.
+- **Dispatch: a trait object** (`Arc<dyn Positions>`), not a type parameter
+  of the hub (which would fix one kind for the whole bus) and not an enum
+  of known kinds (which would need the hub changed for each new one). Its
+  futures are boxed: one allocation per first delivery of a stream and per
+  handled event, beside the store read each already makes. A coordinator-
+  held durable tracker, a remote one, or a broker's committed offsets
+  implement the trait and change nothing in the hub.
+- **Durable** (`DurablePositions`): the event store's position records,
+  under the subscription's name, outliving the process; `resumes` and
+  `atomic_with_outputs` are true. The coordinator's `Processed` is the same
+  record (decision 14.68): its tracker is `DurablePositions` over the
+  coordinator's store, and its outbox (§5) is what makes a policy's
+  position atomic with its outputs; the two are one implementation, not two.
+- **Ephemeral** (`MemoryPositions`): in the process, empty at the start of
+  every serve. Nothing is written to any store (no `Write::positions`, no row
+  under the name), and the transport is told not to resume
+  (`Opening::resume` false), so it starts every stream at sequence 0 even
+  if rows exist under the name. Everything else is a durable projector's:
+  one mark per stream, the fill, dedup, credit, retry and dead letters.
+- **Projectors only.** A policy's position must commit atomically with its
+  outputs (§5), which a position in memory cannot: `subscribe` refuses a
+  policy whose tracker is not `atomic_with_outputs`
+  (`Dispatch::non_atomic_policy`; angzarr-embedded:
+  `Misconfigured::EphemeralPolicy`, `angzarr-embedded-ephemeral-policy`).
+- **Delivery is at least once, and the whole history again after a
+  restart**, so an ephemeral projector's handler must be idempotent. Its
+  use: a read model rebuilt in memory by every process (ctxloom's
+  `PendingModel`), which a shared durable name would starve (a second
+  process marks an event handled before the first sees it) and a per-process
+  durable name would litter (`PositionStore` has no delete).
+- **From the start, not the head.** An ephemeral subscription replays from
+  sequence 0, which is what a rebuilt read model needs; starting at the
+  head (only what is committed from now on) is a different subscription
+  (Kafka `auto.offset.reset=latest`, JetStream `DeliverNew`), recommended
+  only for a handler that wants no history, and not built here.
+
+**Distributed parity.** The semantics are a broker's own, so this is not an
+embedded-only feature:
+
+| Broker | An ephemeral subscription is |
+|---|---|
+| Kafka | a consumer with no committed offsets (`enable.auto.commit=false`, `auto.offset.reset=earliest`), a group id per instance; the hub's mark is the only position |
+| NATS JetStream | an ephemeral consumer (no durable name), `DeliverAll`, removed by the server when its subscriber goes |
+| AMQP | an exclusive auto-delete queue, declared per serve, replaying from the store (the hub's recovery fills it from the start) |
+| the coordinator | `MemoryPositions` in the coordinator, a projector subscribed ephemeral |
+
+A transport whose broker holds the cursor (Kafka offsets, a JetStream
+durable) reads it only when the tracker `resumes`; an ephemeral
+subscription's `Opening::resume` is false, so it starts at the beginning
+whatever the broker holds.
+
+**Conformance.** `contract::positions` (`positions_contract!`) holds any
+tracker to: a stream starts at 0 and holds what is recorded; marks are per
+subscription and per stream; 0 forgets; a restart resumes where `resumes`
+says and starts over where it does not; `begin` empties a tracker that does
+not outlive the serve; only a tracker in the store is atomic with outputs.
+The bus suite adds, for an ephemeral projector: it starts at 0 each serve
+and stores no row (and a new bus is handed the history again), an ephemeral
+policy is refused, out-of-order deliveries are recovered, failures are held
+and dead-lettered as a durable one's, and one bus serves a durable and an
+ephemeral projector side by side. The existing checks run unchanged against
+the durable path.
 
 ## Backlog (distributed)
 
