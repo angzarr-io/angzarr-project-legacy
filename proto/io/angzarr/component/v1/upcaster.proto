@@ -4,7 +4,7 @@ package io.angzarr.component.v1;
 import "io/angzarr/handler/v1/upcaster.proto";
 
 option csharp_namespace = "Angzarr.Component";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/component/v1;angzarrcomponent";
 option java_multiple_files = true;
 option java_package = "io.angzarr.component";
 option ruby_package = "Angzarr::Component";

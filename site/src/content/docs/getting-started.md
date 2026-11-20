@@ -108,7 +108,7 @@ cargo install just
 ### Clone and Build
 
 ```bash
-git clone https://github.com/benjaminabbitt/angzarr
+git clone https://github.com/angzarr-io/angzarr
 cd angzarr
 
 # Build the framework

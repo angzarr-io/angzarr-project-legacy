@@ -114,12 +114,12 @@ Each component type runs in its own pod with an ⍼ Angzarr sidecar. Your code h
 
 | Language | Client Library | Example |
 |----------|----------------|---------|
-| Python | `angzarr-client` | [examples/python/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/python) |
-| Go | `github.com/benjaminabbitt/angzarr/client` | [examples/go/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/go) |
-| Rust | `angzarr-client` | [examples/rust/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/rust) |
-| Java | `dev.angzarr:client` | [examples/java/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/java) |
-| C# | `Angzarr.Client` | [examples/csharp/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/csharp) |
-| C++ | header-only | [examples/cpp/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/cpp) |
+| Python | `angzarr-client` | [examples/python/](https://github.com/angzarr-io/angzarr-examples-python) |
+| Go | `github.com/angzarr-io/angzarr-client-go` | [examples/go/](https://github.com/angzarr-io/angzarr-examples-go) |
+| Rust | `angzarr-client` | [examples/rust/](https://github.com/angzarr-io/angzarr-examples-rust) |
+| Java | `dev.angzarr:client` | [examples/java/](https://github.com/angzarr-io/angzarr-examples-java) |
+| C# | `Angzarr.Client` | [examples/csharp/](https://github.com/angzarr-io/angzarr-examples-csharp) |
+| C++ | header-only | [examples/cpp/](https://github.com/angzarr-io/angzarr-examples-cpp) |
 
 All six implementations share the same Gherkin specifications, ensuring identical behavior across languages.
 

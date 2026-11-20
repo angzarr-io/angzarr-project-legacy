@@ -20,7 +20,7 @@ import "io/angzarr/v1/options.proto";
 // around these messages, never a field of theirs.
 
 option csharp_namespace = "Angzarr";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/v1;angzarr";
 option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";

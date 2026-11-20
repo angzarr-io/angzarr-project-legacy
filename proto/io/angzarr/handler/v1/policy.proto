@@ -6,7 +6,7 @@ import "io/angzarr/handler/v1/command_handler.proto";
 import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr.Handler";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/handler/v1;angzarrhandler";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/handler/v1;angzarrhandler";
 option java_multiple_files = true;
 option java_package = "io.angzarr.handler";
 option ruby_package = "Angzarr::Handler";

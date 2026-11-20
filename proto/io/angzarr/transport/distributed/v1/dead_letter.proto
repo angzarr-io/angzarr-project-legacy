@@ -10,7 +10,7 @@ import "io/angzarr/v1/types.proto";
 import "sererr/v1/sererr.proto";
 
 option csharp_namespace = "Angzarr.Transport.Distributed";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
 option java_multiple_files = true;
 option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";

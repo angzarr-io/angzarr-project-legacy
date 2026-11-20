@@ -4,7 +4,7 @@ package io.angzarr.transport.embedded.v1;
 import "google/protobuf/descriptor.proto";
 
 option csharp_namespace = "Angzarr.Transport.Embedded";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/embedded/v1;angzarrembedded";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/transport/embedded/v1;angzarrembedded";
 option java_multiple_files = true;
 option java_package = "io.angzarr.transport.embedded";
 option ruby_package = "Angzarr::Transport::Embedded";

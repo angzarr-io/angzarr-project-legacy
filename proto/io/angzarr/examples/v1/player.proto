@@ -5,7 +5,7 @@ import "io/angzarr/examples/v1/cards.proto";
 import "io/angzarr/v1/options.proto";
 
 option csharp_namespace = "Angzarr.Examples";
-option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
+option go_package = "github.com/angzarr-io/angzarr-examples-go/proto/io/angzarr/examples/v1;examples";
 option java_multiple_files = true;
 option java_package = "io.angzarr.examples";
 option ruby_package = "Angzarr::Examples";

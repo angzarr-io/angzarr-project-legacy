@@ -5,7 +5,7 @@ import "google/protobuf/timestamp.proto";
 import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr.Scheduler";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/scheduler/v1;angzarrscheduler";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/scheduler/v1;angzarrscheduler";
 option java_multiple_files = true;
 option java_package = "io.angzarr.scheduler";
 option ruby_package = "Angzarr::Scheduler";
