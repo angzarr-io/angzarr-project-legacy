@@ -21,7 +21,7 @@ just build       # strict build to site/dist
 just proto-docs  # regenerate the Proto API reference page only
 ```
 
-`dev` and `build` first run `just vendor` (shallow-clones the sibling repos referenced by code-region embeds into `vendor/`) and `just proto-docs` (renders `proto/` with a pinned protoc-gen-doc container into `site/src/content/docs/reference/proto-api.md`, which is generated and not committed). The site embeds code via the custom `remark-code-region` plugin (see `site/src/plugins/remark-code-region.mjs`); a missing file or region fails the build unless `DOCS_LENIENT=1` is set.
+`dev` and `build` first run `just vendor` (fetches the example repositories referenced by code-region embeds into `vendor/examples/`, each pinned to a full commit in the justfile (`EXAMPLES_PINS`; embeds name a `// docs:start:NAME` region or a `// region NAME` one)) and `just proto-docs` (renders `proto/` with a pinned protoc-gen-doc container into `site/src/content/docs/reference/proto-api.md`, which is generated and not committed). The site embeds code via the custom `remark-code-region` plugin (see `site/src/plugins/remark-code-region.mjs`); a missing file or region fails the build unless `DOCS_LENIENT=1` is set.
 
 ## License
 

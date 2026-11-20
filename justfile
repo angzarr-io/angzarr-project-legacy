@@ -25,11 +25,27 @@ preview:
 install:
     cd {{SITE}} && npm ci
 
-# Shallow-clone the sibling repos that remark-code-region reads snippets from
+# The example repositories the snippets read, each pinned to a full commit so
+# the site builds the same everywhere. Bump a pin deliberately: the strict
+# build then fails on any snippet region that moved. Only the repositories
+# whose files carry `docs:start:`/`docs:end:` markers are read (the python and
+# rust repositories carry none).
+EXAMPLES_REPO := "https://github.com/angzarr-io/angzarr-examples"
+EXAMPLES_PINS := "go=347ea9c6fcd7c84726b9c6f7224f30d59141da60 java=37a00953d4744575f5da77fa687e51ab0fc4ee6a csharp=c882a559e51a6f28efe842074ceef4886da659a2 cpp=ecbbf9cb34dd8e964a0eafb697d2806241edf672"
+
+# Fetch the pinned example repositories into vendor/examples/<lang>
 vendor:
-    mkdir -p vendor/examples vendor/client
-    [ -d vendor/examples/python ] || git clone --depth=1 https://github.com/angzarr-io/angzarr-examples-python.git vendor/examples/python
-    [ -d vendor/client/python ]   || git clone --depth=1 https://github.com/angzarr-io/angzarr-client-python.git   vendor/client/python
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for pin in {{EXAMPLES_PINS}}; do
+        lang="${pin%%=*}"; sha="${pin#*=}"; dir="vendor/examples/$lang"
+        if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null || true)" = "$sha" ]; then continue; fi
+        rm -rf "$dir"; mkdir -p "$dir"
+        git -C "$dir" init -q
+        git -C "$dir" fetch -q --depth=1 "{{EXAMPLES_REPO}}-$lang.git" "$sha"
+        git -C "$dir" checkout -q --detach FETCH_HEAD
+        echo "vendored $lang at $sha"
+    done
 
 # Clean build artifacts
 clean:

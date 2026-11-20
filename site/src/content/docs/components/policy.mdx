@@ -62,18 +62,9 @@ The business code checks nothing and stamps nothing. An output (`io.angzarr.hand
 
 When a table starts a hand, issue a DealCards command to the hand domain. Handler methods are registered by decorator / attribute / macro in the client library.
 
-:::note[Example code predates the rename]
-The example repositories still name this component a saga; they follow the contract's rename when they are reworked.
+:::caution[No current policy example]
+The example repositories' policy code still names a policy a saga, builds `CommandBook`s and reads destination sequences; the contract has none of those (an output is a destination root and a payload, and the coordinator stamps the rest). No example is shown until the repositories are reworked; the contract is `docs/design/policies.md`.
 :::
-
-<Tabs>
-<TabItem label="Python">
-
-```python file=vendor/examples/python/table/saga-hand/main.py region=saga
-```
-
-</TabItem>
-</Tabs>
 
 ---
 
@@ -83,8 +74,9 @@ When one event should trigger commands to **several roots** of the destination d
 
 **Example:** When a table settles, distribute payouts to several players:
 
-```python file=vendor/examples/python/table/saga-hand/splitter_example.py region=saga_splitter
-```
+:::caution[No current splitter example]
+The example repositories' splitter still builds a `CommandBook` per player and reads each target's sequence; under the current contract a policy returns one output per target root and stamps nothing. The pattern is `docs/design/policies.md`.
+:::
 
 Each output targets a different root. The framework delivers them independently: if one is refused, the others may still succeed, and each refusal comes back to the policy's source as its own refusal fact (below).
 

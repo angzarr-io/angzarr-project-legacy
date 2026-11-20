@@ -64,7 +64,28 @@ export default function remarkCodeRegion(options = {}) {
   };
 }
 
+// Two marker dialects name a region: `// region NAME` ... `// endregion`
+// (this repo's protos) and `// docs:start:NAME` ... `// docs:end:NAME` (the
+// example repositories). The docs form is closed by name, so regions of that
+// form may overlap or abut.
+function extractDocsRegion(lines, region) {
+  const name = escapeRegex(region);
+  const start = new RegExp(`(?:#|//)\\s*docs:start:${name}\\s*$`);
+  const end = new RegExp(`(?:#|//)\\s*docs:end:${name}\\s*$`);
+  const startIdx = lines.findIndex((l) => start.test(l));
+  if (startIdx === -1) return null;
+  const endIdx = lines.findIndex((l, i) => i > startIdx && end.test(l));
+  return { startIdx, endIdx };
+}
+
 function extractRegion(lines, region, file) {
+  const docs = extractDocsRegion(lines, region);
+  if (docs) {
+    if (docs.endIdx === -1) {
+      throw new Error(`remark-code-region: unterminated region "${region}" in ${file}`);
+    }
+    return lines.slice(docs.startIdx + 1, docs.endIdx);
+  }
   const start = new RegExp(`(?:#|//)\\s*region\\s+${escapeRegex(region)}\\b`);
   const end = /(?:#|\/\/)\s*endregion\b/;
   let startIdx = -1;
@@ -93,7 +114,7 @@ function extractRegion(lines, region, file) {
 }
 
 function stripRegionMarkers(lines) {
-  return lines.filter((l) => !/^\s*(?:\/\/|#)\s*(?:#\s*)?(?:region\b|endregion\b)/.test(l));
+  return lines.filter((l) => !/^\s*(?:\/\/|#)\s*(?:#\s*)?(?:region\b|endregion\b|docs:(?:start|end):)/.test(l));
 }
 
 function stripTrailingEmpty(lines) {

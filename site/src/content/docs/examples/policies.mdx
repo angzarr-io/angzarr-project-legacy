@@ -18,14 +18,9 @@ When a table starts a hand, the **table-hand policy** translates the table domai
 
 Policies are classes with handler decorators — the same OO pattern as aggregates. All six languages use this.
 
-<Tabs>
-<TabItem label="Python">
-
-```python file=vendor/examples/python/table/saga-hand/main.py region=saga
-```
-
-</TabItem>
-</Tabs>
+:::caution[No current policy example]
+The example repositories' policy code still names a policy a saga, builds `CommandBook`s and reads destination sequences; the contract has none of those (an output is a destination root and a payload, and the coordinator stamps the rest). No example is shown until the repositories are reworked; the contract is `docs/design/policies.md`.
+:::
 
 ---
 

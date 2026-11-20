@@ -129,10 +129,20 @@ All six implementations share the same Gherkin specifications, ensuring identica
 
 Every aggregate — `player`, `table`, `hand`, `tournament`, etc. — is a class derived from the client library's `CommandHandler<State>`. `@handles(CommandType)` methods produce events; `@applies(EventType)` methods reduce events into state. The same pattern in all six languages.
 
-<Tabs>
-<TabItem label="Python">
+:::note[Example code lags the contract]
+The Go and C++ examples come from the example repositories' `main` branches, which still follow the older client surface; they show the shape of a handler class, not the current signatures.
+:::
 
-```python file=vendor/examples/python/table/agg/handlers/table.py region=handlers
+<Tabs>
+<TabItem label="Go">
+
+```go file=vendor/examples/go/hand/agg/hand.go region=oo_handlers
+```
+
+</TabItem>
+<TabItem label="C++">
+
+```cpp file=vendor/examples/cpp/player/agg/src/player.cpp region=oo_handlers
 ```
 
 </TabItem>

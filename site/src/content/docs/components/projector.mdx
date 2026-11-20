@@ -32,10 +32,32 @@ Projectors are defined as classes extending the client library's `Projector` bas
 
 Transforms poker events into human-readable text:
 
-<Tabs>
-<TabItem label="Python">
+:::note[Example code lags the contract]
+These examples come from the example repositories' `main` branches, which still follow the older client surface; they show the shape of a projector class, not the current signatures.
+:::
 
-```python file=vendor/examples/python/prj-output/main.py region=projector
+<Tabs>
+<TabItem label="Go">
+
+```go file=vendor/examples/go/prj-output-oo/main.go region=projector_oo
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java file=vendor/examples/java/prj-output-oo/src/main/java/dev/angzarr/examples/prjoutputoo/OutputProjector.java region=projector_oo
+```
+
+</TabItem>
+<TabItem label="C#">
+
+```csharp file=vendor/examples/csharp/Prj/Output/OutputProjector.cs region=projector_oo
+```
+
+</TabItem>
+<TabItem label="C++">
+
+```cpp file=vendor/examples/cpp/prj-output/src/output_projector_doc.cpp region=projector_oo
 ```
 
 </TabItem>

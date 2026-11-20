@@ -14,10 +14,20 @@ All aggregates in all six languages use the **OO pattern**: a class derived from
 
 `@handles(CommandType)` on a method registers it as the handler for that command. The method returns the event; the framework persists it and advances state.
 
-<Tabs>
-<TabItem label="Python">
+:::note[Example code lags the contract]
+The Go and C++ examples come from the example repositories' `main` branches, which still follow the older client surface; they show the shape of a handler class, not the current signatures.
+:::
 
-```python file=vendor/examples/python/table/agg/handlers/table.py region=handlers
+<Tabs>
+<TabItem label="Go">
+
+```go file=vendor/examples/go/hand/agg/hand.go region=oo_handlers
+```
+
+</TabItem>
+<TabItem label="C++">
+
+```cpp file=vendor/examples/cpp/player/agg/src/player.cpp region=oo_handlers
 ```
 
 </TabItem>
@@ -67,15 +77,21 @@ def release_funds_validate(cmd: player.ReleaseFunds, state: PlayerState) -> int:
 `@applies(EventType)` on a method registers it as the reducer for that event. State is rebuilt by replaying the event stream; each applier mutates a fresh state instance in order.
 
 <Tabs>
-<TabItem label="Python">
+<TabItem label="Go">
 
-```python file=vendor/examples/python/table/agg/handlers/table.py region=handlers
+```go file=vendor/examples/go/hand/agg/hand.go region=oo_handlers
+```
+
+</TabItem>
+<TabItem label="C++">
+
+```cpp file=vendor/examples/cpp/player/agg/src/player.cpp region=oo_handlers
 ```
 
 </TabItem>
 </Tabs>
 
-The table example interleaves `@applies` and `@handles` methods in one class — the base class indexes them by reflection at construction time. No separate router to register or compose.
+The same class carries both `@applies` and `@handles` methods; the registration in its constructor is the only wiring. No separate router to register or compose.
 
 ---
 
@@ -83,14 +99,9 @@ The table example interleaves `@applies` and `@handles` methods in one class —
 
 Pass the handler class (not an instance) to the server factory. The framework instantiates the aggregate per command, rebuilding state from the event log.
 
-<Tabs>
-<TabItem label="Python">
-
-```python file=vendor/examples/python/table/agg/main.py
-```
-
-</TabItem>
-</Tabs>
+:::caution[No server-wiring example]
+The example repositories wire an aggregate through a command router, a function-style registration, not by handing a handler class to a server factory; no marked example of the class form exists yet. This page's description of the class form is the contract's (`docs/design/`).
+:::
 
 ---
 

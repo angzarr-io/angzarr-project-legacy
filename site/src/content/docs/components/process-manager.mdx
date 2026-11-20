@@ -73,7 +73,7 @@ sequenceDiagram
 ```
 
 :::caution[Example code predates the contract]
-The Python snippets below come from the examples repository, which still shows a PM reacting to other domains' events and returning commands. Under the current contract (decision 14.31) a PM is a domain: policies send it commands, and it returns only its own events, from which policies build each command.
+The snippets below come from the example repositories, whose `main` branches still show a PM reacting to other domains' events and returning commands. Under the current contract (decision 14.31) a PM is a domain: policies send it commands, and it returns only its own events, from which policies build each command.
 :::
 
 PMs extend the client library's `ProcessManager` base class; handler methods are registered by decorator / attribute / macro. State lives on the instance.
@@ -81,9 +81,27 @@ PMs extend the client library's `ProcessManager` base class; handler methods are
 ### State Definition
 
 <Tabs>
-<TabItem label="Python">
+<TabItem label="Go">
 
-```python file=vendor/examples/python/pmg-hand-flow/hand_flow_pm.py region=pm_state
+```go file=vendor/examples/go/pmg-hand-flow/main.go region=pm_state_oo
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java file=vendor/examples/java/hand-flow-oo/src/main/java/dev/angzarr/examples/handflowoo/HandFlowPM.java region=pm_state_oo
+```
+
+</TabItem>
+<TabItem label="C#">
+
+```csharp file=vendor/examples/csharp/HandFlowOO/HandFlowPM.cs region=pm_state_oo
+```
+
+</TabItem>
+<TabItem label="C++">
+
+```cpp file=vendor/examples/cpp/hand-flow-oo/src/hand_flow_pm.hpp region=pm_state_oo
 ```
 
 </TabItem>
@@ -92,9 +110,27 @@ PMs extend the client library's `ProcessManager` base class; handler methods are
 ### Handler Implementation
 
 <Tabs>
-<TabItem label="Python">
+<TabItem label="Go">
 
-```python file=vendor/examples/python/pmg-hand-flow/hand_flow_pm.py region=pm_handler
+```go file=vendor/examples/go/pmg-hand-flow/main.go region=pm_handler_oo
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java file=vendor/examples/java/hand-flow-oo/src/main/java/dev/angzarr/examples/handflowoo/HandFlowPM.java region=pm_handler_oo
+```
+
+</TabItem>
+<TabItem label="C#">
+
+```csharp file=vendor/examples/csharp/HandFlowOO/HandFlowPM.cs region=pm_handler_oo
+```
+
+</TabItem>
+<TabItem label="C++">
+
+```cpp file=vendor/examples/cpp/hand-flow-oo/src/hand_flow_pm.hpp region=pm_handler_oo
 ```
 
 </TabItem>
