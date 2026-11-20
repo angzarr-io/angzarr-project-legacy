@@ -533,6 +533,45 @@ arriving later, are dropped as duplicates, never handed again.
 
 The transport's own checks are §14's.
 
+**The kit is itself tested.** Every check of `angzarr_bus::contract` and
+`contract::transport` is run, in angzarr core's `tests/contract/flawed.rs`,
+against an implementation broken on purpose: a handler called twice,
+an event skipped or swapped, a failure swallowed, no dead letter kept, a
+credit exceeded or undershot, a delay dropped, a commit that does not wake,
+a recovery that invents or misnumbers an event, a transport that mislabels
+a delivery, forgets what was unsettled or the positions, ignores a delay, or
+drops a purged stream, or answers idle for ever. Each check must fail its
+flawed implementation (naming why) and pass the same wrapper with no flaw,
+so no check is green by accident; a test lists every check by name and fails
+if one has no flaw. The ports' outbox clearing check has the same
+(`angzarr-ports/tests/meta.rs`). A check that waits does so within one
+deadline (three seconds in the reference run), so a bus that never answers
+fails quickly instead of spinning.
+
+**Accepted mutation survivors** (cargo-mutants over the branch's diff; core
+85% and embedded 90% of what is not unviable are the bars). Mutants killed by
+a test hanging until the run's timeout count as kills: they are busy loops in
+the hub or the store feed under a broken step (a delivery's slot never
+settled, a fill that returns without progress), which no deadline can
+interrupt on one thread. What survives, and why it cannot be told from the
+original by anything observable:
+
+| Where (angzarr core, at the branch tip) | Mutation | Why equivalent |
+|---|---|---|
+| `pump.rs` `pump`, the burst bound `taken > BURST` | `>` to `==`, `>=` | The bound is a fairness constant: yielding after 32 or after 33 steps differs only in when the runtime runs its other work; the starvation test passes with any bound that yields at all. |
+| `contract.rs` `a_projectors_bug_is_dead_lettered_and_its_stream_goes_on`, its wait `handled >= 1 && idles >= 3` | `&&` to `\|\|`, `>=` to `<` | How long the check watches for a repeat after the bug is passed. The reference run and every flaw in the flawed tests settle within the first idle; the three idles only widen the window. |
+| `contract.rs` `a_purged_stream_is_handed_to_a_projector_once_as_gone_and_forgotten_by_a_policy`, its wait | `&&` to `\|\|`, `>=` to `<` | As above, for a repeated gone delivery. |
+| `contract.rs` `a_commit_wakes_the_bus_with_no_poll`, the commit's wait `idles >= 1` | `>=` to `<` | The serve is polled before the commit's future in the check's driver, so the bus has already scanned and gone idle when the commit lands, with the wait or without it. |
+
+Three survivors in angzarr-embedded are not equivalents but gaps, left for a
+store that can be made to fail at a chosen step of a relay: `served.rs`
+`relay_pending`'s arm that stops the bus on a store failure while it keeps
+the letters of a relayed entry; `step_relayed`'s test that a handler's fault
+writes its command's letter only if the step raised none (`==`), and its
+`retried || given_up` (`||`). The toy store's faults count writes, not steps,
+and could not place a failure there.
+
+
 ## 14. Brokers: handled or failed, and what a delivery must carry
 
 Every delivery is acknowledged, handled (dequeued) or failed, with no
